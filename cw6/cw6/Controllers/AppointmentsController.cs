@@ -103,16 +103,14 @@ namespace Tutorial7.Controllers
                 return Ok(d);
             }
 
-            return NotFound($"Appointment with Id {id} not found");
-        }
+            return NotFound(new ErrorResponseDto { StatusCode = 404, Message = $"Appointment with Id {id} not found" });        }
 
         [HttpPost]
         public async Task<IActionResult> PostAppointmentAsync([FromBody] CreateAppointmentRequestDto request)
         {
             if (request.AppointmentDate < DateTime.Now)
             {
-                return BadRequest("AppointmentDate cannot be in the past");
-            }
+                return BadRequest(new ErrorResponseDto { StatusCode = 400, Message = "AppointmentDate cannot be in the past" });            }
 
             await using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
@@ -123,16 +121,14 @@ namespace Tutorial7.Controllers
             var patientActive = await patientCmd.ExecuteScalarAsync() as bool?;
             if (patientActive != true)
             {
-                return BadRequest("Patient is not active");
-            }
+                return BadRequest(new ErrorResponseDto { StatusCode = 400, Message = "Patient is not active" });            }
 
             var doctorCmd = new SqlCommand("SELECT IsActive FROM dbo.Doctors WHERE IdDoctor = @IdDoctor", connection);
             doctorCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
             var doctorActive = await doctorCmd.ExecuteScalarAsync() as bool?;
             if (doctorActive != true)
             {
-                return BadRequest("Doctor is not active");
-            }
+                return BadRequest(new ErrorResponseDto { StatusCode = 400, Message = "Doctor is not active" });            }
 
             var conQuery = """
                            SELECT COUNT(1) FROM dbo.Appointments 
@@ -179,8 +175,7 @@ namespace Tutorial7.Controllers
 
             if (!await reader.ReadAsync())
             {
-                return NotFound("Appointment not found");
-            }
+                return NotFound(new ErrorResponseDto { StatusCode = 404, Message = "Appointment not found" });            }
 
             var currentStat = reader.GetString(0);
             var currentDate = reader.GetDateTime(1);
@@ -188,8 +183,7 @@ namespace Tutorial7.Controllers
 
             if (currentStat == "Completed" && currentDate != request.AppointmentDate)
             {
-                return BadRequest("Cannot change the date of a completed appointment.");
-            }
+                return BadRequest(new ErrorResponseDto { StatusCode = 400, Message = "Cannot change the date of a completed appointment." });            }
 
             if (currentDate != request.AppointmentDate)
             {
@@ -205,8 +199,7 @@ namespace Tutorial7.Controllers
                 var confCount = (int)(await confCmd.ExecuteScalarAsync() ?? 0);
                 if (confCount > 0)
                 {
-                    return Conflict("Doctor already has an appointment at this time");
-                }
+                    return Conflict(new ErrorResponseDto { StatusCode = 409, Message = "Doctor already has an appointment at this time" });                }
             }
 
             var updateQuery = """
@@ -244,13 +237,11 @@ namespace Tutorial7.Controllers
 
             if (currentStat == null)
             {
-                return NotFound("Appointment not found");
-            }
+                return NotFound(new ErrorResponseDto { StatusCode = 404, Message = "Appointment not found" });            }
 
             if (currentStat == "Completed")
             {
-                return Conflict("Cannot delete a completed appointment.");
-                
+                return Conflict(new ErrorResponseDto { StatusCode = 409, Message = "Cannot delete a completed appointment." });                
             }
             var deleteCmd = new SqlCommand("DELETE FROM dbo.Appointments WHERE IdAppointment = @Id", connection);
             deleteCmd.Parameters.AddWithValue("@Id", id);
