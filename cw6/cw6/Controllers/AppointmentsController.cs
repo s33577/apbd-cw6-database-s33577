@@ -39,7 +39,8 @@ namespace Tutorial7.Controllers
             await using var command = new SqlCommand(query, connection);
 
             command.Parameters.AddWithValue("@Status", string.IsNullOrEmpty(status) ? DBNull.Value : status);
-            command.Parameters.AddWithValue("@PatientLastName", string.IsNullOrEmpty(patientLastName) ? DBNull.Value : patientLastName);
+            command.Parameters.AddWithValue("@PatientLastName",
+                string.IsNullOrEmpty(patientLastName) ? DBNull.Value : patientLastName);
 
             await connection.OpenAsync();
             await using var reader = await command.ExecuteReaderAsync();
@@ -76,7 +77,7 @@ namespace Tutorial7.Controllers
                         JOIN dbo.Doctors d ON d.IdDoctor = a.IdDoctor
                         WHERE a.IdAppointment = @IdAppointment;
                         """;
-            
+
             await using var command = new SqlCommand(query, connection);
             command.Parameters.AddWithValue("@IdAppointment", id);
             await connection.OpenAsync();
@@ -89,7 +90,9 @@ namespace Tutorial7.Controllers
                     AppointmentDate = reader.GetDateTime(reader.GetOrdinal("AppointmentDate")),
                     Status = reader.GetString(reader.GetOrdinal("Status")),
                     Reason = reader.GetString(reader.GetOrdinal("Reason")),
-                    InternalNotes = reader.IsDBNull(reader.GetOrdinal("InternalNotes")) ? null : reader.GetString(reader.GetOrdinal("InternalNotes")),
+                    InternalNotes = reader.IsDBNull(reader.GetOrdinal("InternalNotes"))
+                        ? null
+                        : reader.GetString(reader.GetOrdinal("InternalNotes")),
                     CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt")),
                     PatientFullName = reader.GetString(reader.GetOrdinal("PatientFullName")),
                     PatientEmail = reader.GetString(reader.GetOrdinal("PatientEmail")),
@@ -99,6 +102,7 @@ namespace Tutorial7.Controllers
                 };
                 return Ok(d);
             }
+
             return NotFound($"Appointment with Id {id} not found");
         }
 
@@ -109,10 +113,12 @@ namespace Tutorial7.Controllers
             {
                 return BadRequest("AppointmentDate cannot be in the past");
             }
+
             await using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            var patientCmd = new SqlCommand("SELECT IsActive FROM dbo.Patients WHERE IdPatient = @IdPatient", connection);
+            var patientCmd = new SqlCommand("SELECT IsActive FROM dbo.Patients WHERE IdPatient = @IdPatient",
+                connection);
             patientCmd.Parameters.AddWithValue("@IdPatient", request.IdPatient);
             var patientActive = await patientCmd.ExecuteScalarAsync() as bool?;
             if (patientActive != true)
@@ -132,7 +138,7 @@ namespace Tutorial7.Controllers
                            SELECT COUNT(1) FROM dbo.Appointments 
                            WHERE IdDoctor = @IdDoctor AND AppointmentDate = @Date AND Status != 'Cancelled'
                            """;
-            var conCmd =  new SqlCommand(conQuery, connection);
+            var conCmd = new SqlCommand(conQuery, connection);
             conCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
             conCmd.Parameters.AddWithValue("@Date", request.AppointmentDate);
             var conCount = (int)(await conCmd.ExecuteScalarAsync() ?? 0);
@@ -153,12 +159,79 @@ namespace Tutorial7.Controllers
             insertCmd.Parameters.AddWithValue("@Reason", request.Reason);
             var newID = (int)(await insertCmd.ExecuteScalarAsync() ?? 0);
             return CreatedAtAction("GetAppointment", new { id = newID }, request);
-            
+
+            //return CreatedAtAction(nameof(GetAppointmentAsync), new { id = newId }, request);
         }
-        
+
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> PutAppointmentAsync(int id, [FromBody] UpdateAppointmentRequestDto request)
+        {
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var getCmd =
+                new SqlCommand("SELECT Status, AppointmentDate FROM dbo.Appointments WHERE IdAppointment = @Id",
+                    connection);
+            getCmd.Parameters.AddWithValue("@Id", id);
+
+            await using var reader = await getCmd.ExecuteReaderAsync();
+
+            if (!await reader.ReadAsync())
+            {
+                return NotFound("Appointment not found");
+            }
+
+            var currentStat = reader.GetString(0);
+            var currentDate = reader.GetDateTime(1);
+            await reader.CloseAsync();
+
+            if (currentStat == "Completed" && currentDate != request.AppointmentDate)
+            {
+                return BadRequest("Cannot change the date of a completed appointment.");
+            }
+
+            if (currentDate != request.AppointmentDate)
+            {
+                var confQuery = """
+                                SELECT COUNT(1) FROM dbo.Appointments 
+                                WHERE IdDoctor = @IdDoctor AND AppointmentDate = @Date AND IdAppointment != @Id AND Status != 'Cancelled'
+                                """;
+                var confCmd = new SqlCommand(confQuery, connection);
+                confCmd.Parameters.AddWithValue("@Id", id);
+                confCmd.Parameters.AddWithValue("@Date", request.AppointmentDate);
+                confCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
+
+                var confCount = (int)(await confCmd.ExecuteScalarAsync() ?? 0);
+                if (confCount > 0)
+                {
+                    return Conflict("Doctor already has an appointment at this time");
+                }
+            }
+
+            var updateQuery = """
+                              UPDATE dbo.Appointments
+                              SET IdPatient = @IdPatient, IdDoctor = @IdDoctor, AppointmentDate = @AppointmentDate, 
+                              Status = @Status, Reason = @Reason, InternalNotes = @InternalNotes
+                              WHERE IdAppointment = @IdAppointment;
+                              """;
+
+            await using var updateCmd = new SqlCommand(updateQuery, connection);
+            updateCmd.Parameters.AddWithValue("@IdAppointment", id);
+            updateCmd.Parameters.AddWithValue("@IdPatient", request.IdPatient);
+            updateCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
+            updateCmd.Parameters.AddWithValue("@AppointmentDate", request.AppointmentDate);
+            updateCmd.Parameters.AddWithValue("@Status", request.Status);
+            updateCmd.Parameters.AddWithValue("@Reason", request.Reason);
+            updateCmd.Parameters.AddWithValue("@InternalNotes",
+                string.IsNullOrEmpty(request.InternalNotes) ? DBNull.Value : request.InternalNotes);
+
+            await updateCmd.ExecuteNonQueryAsync();
+            return Ok("Appointment successfully updated");
+        }
+
     }
-    
-    
+
 }
 
 
