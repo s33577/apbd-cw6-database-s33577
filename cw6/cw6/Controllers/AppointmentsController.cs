@@ -101,8 +101,63 @@ namespace Tutorial7.Controllers
             }
             return NotFound($"Appointment with Id {id} not found");
         }
+
+        [HttpPost]
+        public async Task<IActionResult> PostAppointmentAsync([FromBody] CreateAppointmentRequestDto request)
+        {
+            if (request.AppointmentDate < DateTime.Now)
+            {
+                return BadRequest("AppointmentDate cannot be in the past");
+            }
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var patientCmd = new SqlCommand("SELECT IsActive FROM dbo.Patients WHERE IdPatient = @IdPatient", connection);
+            patientCmd.Parameters.AddWithValue("@IdPatient", request.IdPatient);
+            var patientActive = await patientCmd.ExecuteScalarAsync() as bool?;
+            if (patientActive != true)
+            {
+                return BadRequest("Patient is not active");
+            }
+
+            var doctorCmd = new SqlCommand("SELECT IsActive FROM dbo.Doctors WHERE IdDoctor = @IdDoctor", connection);
+            doctorCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
+            var doctorActive = await doctorCmd.ExecuteScalarAsync() as bool?;
+            if (doctorActive != true)
+            {
+                return BadRequest("Doctor is not active");
+            }
+
+            var conQuery = """
+                           SELECT COUNT(1) FROM dbo.Appointments 
+                           WHERE IdDoctor = @IdDoctor AND AppointmentDate = @Date AND Status != 'Cancelled'
+                           """;
+            var conCmd =  new SqlCommand(conQuery, connection);
+            conCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
+            conCmd.Parameters.AddWithValue("@Date", request.AppointmentDate);
+            var conCount = (int)(await conCmd.ExecuteScalarAsync() ?? 0);
+            if (conCount > 0)
+            {
+                return Conflict("Doctor already has an appointment at this time");
+            }
+
+            var insertQuery = """
+                              INSERT INTO dbo.Appointments (IdPatient, IdDoctor, AppointmentDate, Status, Reason)
+                              OUTPUT INSERTED.IdAppointment
+                              VALUES (@IdPatient, @IdDoctor, @AppointmentDate, 'Scheduled', @Reason);
+                              """;
+            await using var insertCmd = new SqlCommand(insertQuery, connection);
+            insertCmd.Parameters.AddWithValue("@IdPatient", request.IdPatient);
+            insertCmd.Parameters.AddWithValue("@IdDoctor", request.IdDoctor);
+            insertCmd.Parameters.AddWithValue("@AppointmentDate", request.AppointmentDate);
+            insertCmd.Parameters.AddWithValue("@Reason", request.Reason);
+            var newID = (int)(await insertCmd.ExecuteScalarAsync() ?? 0);
+            return CreatedAtAction("GetAppointment", new { id = newID }, request);
+            
+        }
         
     }
+    
     
 }
 
