@@ -230,6 +230,35 @@ namespace Tutorial7.Controllers
             return Ok("Appointment successfully updated");
         }
 
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteAppointmentAsync(int id)
+        {
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+            var statCmd = new SqlCommand(
+                "SELECT Status FROM dbo.Appointments WHERE IdAppointment = @Id",
+                connection);
+           statCmd.Parameters.AddWithValue("@Id", id);
+            
+            var currentStat = await statCmd.ExecuteScalarAsync() as string;
+
+            if (currentStat == null)
+            {
+                return NotFound("Appointment not found");
+            }
+
+            if (currentStat == "Completed")
+            {
+                return Conflict("Cannot delete a completed appointment.");
+                
+            }
+            var deleteCmd = new SqlCommand("DELETE FROM dbo.Appointments WHERE IdAppointment = @Id", connection);
+            deleteCmd.Parameters.AddWithValue("@Id", id);
+        
+            await deleteCmd.ExecuteNonQueryAsync();
+            return NoContent();
+        }
+
     }
 
 }
