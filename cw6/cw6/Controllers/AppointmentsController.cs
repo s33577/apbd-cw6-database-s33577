@@ -61,7 +61,49 @@ namespace Tutorial7.Controllers
             return Ok(appoitments);
 
         }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetAppointmentAsync([FromRoute] int id)
+        {
+            await using var connection = new SqlConnection(_connectionString);
+            var query = """
+                            SELECT 
+                            a.IdAppointment, a.AppointmentDate, a.Status, a.Reason, a.InternalNotes, a.CreatedAt,
+                            p.FirstName + ' ' + p.LastName AS PatientFullName, p.Email AS PatientEmail, p.PhoneNumber,
+                            d.FirstName + ' ' + d.LastName AS DoctorFullName, d.LicenseNumber
+                        FROM dbo.Appointments a
+                        JOIN dbo.Patients p ON p.IdPatient = a.IdPatient
+                        JOIN dbo.Doctors d ON d.IdDoctor = a.IdDoctor
+                        WHERE a.IdAppointment = @IdAppointment;
+                        """;
+            
+            await using var command = new SqlCommand(query, connection);
+            command.Parameters.AddWithValue("@IdAppointment", id);
+            await connection.OpenAsync();
+            await using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var d = new AppointmentDetailsDto
+                {
+                    IdAppointment = reader.GetInt32(reader.GetOrdinal("IdAppointment")),
+                    AppointmentDate = reader.GetDateTime(reader.GetOrdinal("AppointmentDate")),
+                    Status = reader.GetString(reader.GetOrdinal("Status")),
+                    Reason = reader.GetString(reader.GetOrdinal("Reason")),
+                    InternalNotes = reader.IsDBNull(reader.GetOrdinal("InternalNotes")) ? null : reader.GetString(reader.GetOrdinal("InternalNotes")),
+                    CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt")),
+                    PatientFullName = reader.GetString(reader.GetOrdinal("PatientFullName")),
+                    PatientEmail = reader.GetString(reader.GetOrdinal("PatientEmail")),
+                    PhoneNumber = reader.GetString(reader.GetOrdinal("PhoneNumber")),
+                    DoctorFullName = reader.GetString(reader.GetOrdinal("DoctorFullName")),
+                    LicenseNumber = reader.GetString(reader.GetOrdinal("LicenseNumber"))
+                };
+                return Ok(d);
+            }
+            return NotFound($"Appointment with Id {id} not found");
+        }
+        
     }
+    
 }
 
 
